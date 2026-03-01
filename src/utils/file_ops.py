@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Callable
 
 _WILDCARD_CHARS = ("*", "?", "[")
+_HASH_CHUNK_SIZE = 65536
 
 
 def sha256_file(path: Path) -> str:
     """计算文件的 SHA256 哈希值。"""
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
+        for chunk in iter(lambda: f.read(_HASH_CHUNK_SIZE), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -55,7 +56,22 @@ def collect_files(base: Path, paths: tuple[str, ...]) -> list[Path]:
             files.append(target)
         elif target.is_dir():
             files.extend(p for p in target.rglob("*") if p.is_file())
-    return files
+    return _dedup_files(files)
+
+
+def _dedup_files(files: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for p in files:
+        try:
+            key = str(p.resolve()).casefold()
+        except OSError:
+            key = str(p).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(p)
+    return result
 
 
 def count_size(files: list[Path]) -> int:
