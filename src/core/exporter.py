@@ -8,6 +8,7 @@ from typing import Callable
 
 from src.core.data_items import DataItem
 from src.core.tdx_process import assert_tdx_not_running
+from src.core.version import TOOL_VERSION
 from src.utils.file_ops import (
     collect_files,
     count_size,
@@ -18,8 +19,6 @@ from src.utils.file_ops import (
     verify_copies,
 )
 
-VERSION = "1.0.0"
-
 
 def _make_manifest(
     t0002_path: Path,
@@ -27,7 +26,7 @@ def _make_manifest(
     file_hashes: dict[str, str],
 ) -> dict:
     return {
-        "tool_version": VERSION,
+        "tool_version": TOOL_VERSION,
         "export_time": datetime.now().isoformat(),
         "source_path": str(t0002_path),
         "selected_items": [item.id for item in selected_items],

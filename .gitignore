@@ -11,3 +11,4 @@ build/
 .ace-tool/
 .claude/
 *.spec
+temp/
