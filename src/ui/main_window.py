@@ -13,7 +13,9 @@ from PyQt6.QtGui import QFont
 
 from src.core.importer import rollback
 from src.core.tdx_process import assert_tdx_not_running
+from src.core.version import APP_NAME, APP_VERSION
 from src.ui.data_panel import DataPanel
+from src.ui.compare_dialog import CompareDialog
 from src.ui.help_dialog import HelpDialog
 from src.ui.path_selector import PathSelector
 from src.ui.progress_dialog import ProgressDialog
@@ -26,7 +28,7 @@ from src.ui.workers import ExportWorker, ImportWorker
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("通达信配置备份与转移工具 v1.0.1")
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.setMinimumSize(760, 680)
         self._t0002_path: Path | None = None
         self._last_backup_dir: Path | None = None
@@ -104,6 +106,11 @@ class MainWindow(QMainWindow):
         self._userini_btn.setToolTip("安全合并 user.ini 中的 extern 外挂段落")
         self._userini_btn.clicked.connect(self._on_userini)
         layout.addWidget(self._userini_btn)
+
+        self._compare_btn = QPushButton("对比/导入（两版本）")
+        self._compare_btn.setToolTip("对比两套通达信 T0002 差异，并按策略导入/同步")
+        self._compare_btn.clicked.connect(self._on_compare)
+        layout.addWidget(self._compare_btn)
 
         parent.addWidget(box)
 
@@ -246,6 +253,10 @@ class MainWindow(QMainWindow):
             candidate = self._t0002_path / "user.ini"
             if candidate.exists():
                 self._log_info(f"提示：检测到目标 user.ini：{candidate}")
+        dlg.exec()
+
+    def _on_compare(self) -> None:
+        dlg = CompareDialog(parent=self)
         dlg.exec()
 
     def _on_worker_error(self, msg: str) -> None:

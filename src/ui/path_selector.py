@@ -7,15 +7,21 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
-from src.core.tdx_finder import TdxInstance, find_tdx_instances, validate_t0002_path
+from src.core.tdx_finder import (
+    TdxInstance,
+    find_tdx_instances,
+    resolve_t0002_path,
+    validate_t0002_path,
+)
 
 
 class PathSelector(QWidget):
     path_changed = pyqtSignal(Path)   # 有效路径变更时发射
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, allow_root: bool = False) -> None:
         super().__init__(parent)
         self._instances: list[TdxInstance] = []
+        self._allow_root = allow_root
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -26,7 +32,9 @@ class PathSelector(QWidget):
         layout.addWidget(self._combo)
 
         self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("T0002 目录路径…")
+        self._path_edit.setPlaceholderText(
+            "安装根目录或 T0002 目录路径…" if self._allow_root else "T0002 目录路径…"
+        )
         self._path_edit.editingFinished.connect(self._on_edit_finished)
         layout.addWidget(self._path_edit, stretch=1)
 
@@ -57,11 +65,9 @@ class PathSelector(QWidget):
 
     def current_path(self) -> Path | None:
         text = self._path_edit.text().strip()
-        if text:
-            p = Path(text)
-            if validate_t0002_path(p):
-                return p
-        return None
+        if not text:
+            return None
+        return self._resolve_path(Path(text))
 
     def set_path(self, path: Path) -> None:
         self._path_edit.setText(str(path))
@@ -83,28 +89,47 @@ class PathSelector(QWidget):
         text = self._path_edit.text().strip()
         if not text:
             return
-        p = Path(text)
-        if validate_t0002_path(p):
-            self.path_changed.emit(p)
-        else:
+        resolved = self._resolve_path(Path(text))
+        if resolved is None:
+            hint = (
+                "请确认路径正确，并确保其为 T0002 目录或其上级安装目录。"
+                if self._allow_root
+                else "请确认路径正确，且目录下包含 blocknew 或 vipdoc 子目录。"
+            )
             QMessageBox.warning(
                 self,
                 "路径无效",
-                f"所选路径不是有效的 T0002 目录：\n{p}\n\n"
-                "请确认路径正确，且目录下包含 blocknew 或 vipdoc 子目录。",
+                f"所选路径不是有效的通达信目录：\n{text}\n\n"
+                f"{hint}",
             )
+            return
+
+        self._path_edit.setText(str(resolved))
+        self.path_changed.emit(resolved)
 
     def _on_browse(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "选择 T0002 目录", "")
+        title = "选择安装根目录或 T0002 目录" if self._allow_root else "选择 T0002 目录"
+        folder = QFileDialog.getExistingDirectory(self, title, "")
         if not folder:
             return
-        p = Path(folder)
-        if validate_t0002_path(p):
-            self._path_edit.setText(str(p))
-            self.path_changed.emit(p)
-        else:
+        resolved = self._resolve_path(Path(folder))
+        if resolved is None:
+            hint = (
+                "请选择安装根目录或 T0002 目录。"
+                if self._allow_root
+                else "请选择有效的 T0002 目录。"
+            )
             QMessageBox.warning(
                 self,
                 "路径无效",
-                f"所选路径不是有效的 T0002 目录：\n{p}",
+                f"所选路径无效：\n{folder}\n\n{hint}",
             )
+            return
+
+        self._path_edit.setText(str(resolved))
+        self.path_changed.emit(resolved)
+
+    def _resolve_path(self, path: Path) -> Path | None:
+        if self._allow_root:
+            return resolve_t0002_path(path)
+        return path if validate_t0002_path(path) else None

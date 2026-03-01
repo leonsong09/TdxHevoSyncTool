@@ -185,3 +185,16 @@ def find_tdx_instances() -> list[TdxInstance]:
 def validate_t0002_path(path: Path) -> bool:
     """对外暴露的路径验证接口。"""
     return _is_valid_t0002(path)
+
+
+def resolve_t0002_path(path: Path) -> Path | None:
+    """
+    兼容用户输入“安装根目录”或“T0002 目录”两种场景：
+    - 若 path 本身是有效 T0002，直接返回；
+    - 否则尝试 path/T0002；
+    - 都不满足则返回 None。
+    """
+    if _is_valid_t0002(path):
+        return path
+    candidate = path / "T0002"
+    return candidate if _is_valid_t0002(candidate) else None

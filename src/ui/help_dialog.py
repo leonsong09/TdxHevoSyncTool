@@ -4,6 +4,8 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton, QApplication
 from PyQt6.QtCore import Qt
 
+from src.core.version import APP_NAME, APP_VERSION
+
 _MIN_WIDTH = 720
 _MIN_HEIGHT = 520
 
@@ -21,6 +23,13 @@ def _help_html(app_name: str, app_version: str) -> str:
   <li>在目标 T0002 中导入（导入前会自动备份，可回滚）。</li>
 </ol>
 
+<h3>对比/导入（两版本）</h3>
+<ul>
+  <li>用于在两套通达信之间迁移/同步：左→右、右→左、双向补齐缺失、双向覆盖同步。</li>
+  <li>支持选择安装根目录或 T0002 目录，会自动定位到 <b>T0002</b>。</li>
+  <li><b>user.ini</b> 永远不会参与对比导入（禁止项），请使用“user.ini extern 合并”。</li>
+</ul>
+
 <h3>安全等级说明</h3>
 <ul>
   <li><b>安全</b>：默认全选，通常跨版本兼容。</li>
@@ -32,6 +41,7 @@ def _help_html(app_name: str, app_version: str) -> str:
 <ul>
   <li>导入/回滚前请先完全关闭通达信主程序。</li>
   <li>导入会覆盖同名文件；工具会先自动备份被覆盖文件。</li>
+  <li>单文件 EXE 运行与对比导入会使用当前目录的 <code>temp</code> 文件夹作为临时目录，请确保可写。</li>
   <li><b>user.ini 禁止整体复制</b>：跨版本整体复制可能导致闪退。请使用“<b>user.ini extern 合并</b>”仅迁移 <code>extern_*</code> 段落。</li>
 </ul>
 """
@@ -45,8 +55,8 @@ class HelpDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         app = QApplication.instance()
-        app_name = app.applicationName() if app else "通达信配置备份与转移工具"
-        app_version = app.applicationVersion() if app else "1.0.0"
+        app_name = app.applicationName() if app else APP_NAME
+        app_version = app.applicationVersion() if app else APP_VERSION
 
         layout = QVBoxLayout(self)
 
