@@ -145,7 +145,14 @@ class UserIniDialog(QDialog):
                 self._preview_edit.setPlainText(self._src_externs[idx].as_text())
 
     def _on_preview(self) -> None:
-        self._preview = preview_merge(self._src_externs, self._dst_externs)
+        try:
+            self._preview = preview_merge(self._src_externs, self._dst_externs)
+        except ValueError as exc:
+            self._preview = None
+            self._preview_edit.setPlainText(str(exc))
+            self._apply_btn.setEnabled(False)
+            QMessageBox.warning(self, "预览失败", str(exc))
+            return
         lines: list[str] = []
         if self._preview.sections_to_add:
             lines.append("【将新增段落】")
@@ -156,7 +163,7 @@ class UserIniDialog(QDialog):
             for dst_sec, new_lines in self._preview.keys_to_add:
                 lines.append(f"  [{dst_sec.name}]  +{len(new_lines)} 行")
         if self._preview.already_identical:
-            lines.append("【已存在相同段落，跳过】")
+            lines.append("【目标已包含全部键，跳过】")
             for s in self._preview.already_identical:
                 lines.append(f"  [{s.name}]")
         if not lines:

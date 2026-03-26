@@ -7,17 +7,31 @@ from pathlib import Path
 _SECTION_RE = re.compile(r"^\[([^\]]+)\]$")
 _EXTERN_RE = re.compile(r"^\[extern_\d+\]$", re.IGNORECASE)
 
-_DEFAULT_ENCODINGS = ("gbk", "gb2312", "utf-8", "latin-1")
+_DEFAULT_ENCODINGS = ("utf-8", "gbk", "gb2312", "latin-1")
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def _decode_text_auto(raw_bytes: bytes) -> tuple[str, str]:
+    if raw_bytes.startswith(_UTF8_BOM):
+        return raw_bytes.decode("utf-8-sig"), "utf-8-sig"
+    for enc in _DEFAULT_ENCODINGS:
+        try:
+            return raw_bytes.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw_bytes.decode("latin-1"), "latin-1"
 
 
 def _read_text_auto(path: Path) -> str:
     """尝试多种编码读取文件内容，返回字符串。"""
-    for enc in _DEFAULT_ENCODINGS:
-        try:
-            return path.read_text(encoding=enc)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return path.read_bytes().decode("latin-1")
+    raw_bytes = path.read_bytes()
+    text, _ = _decode_text_auto(raw_bytes)
+    return text
+
+
+def _detect_encoding(path: Path) -> str:
+    _, encoding = _decode_text_auto(path.read_bytes())
+    return encoding
 
 
 @dataclass
@@ -38,6 +52,8 @@ def parse_ini(path: Path) -> tuple[list[IniSection], list[str]]:
     header_lines 包含第一个节之前的内容（通常为空或注释）。
     """
     raw = _read_text_auto(path)
+    if raw.startswith("\ufeff"):
+        raw = raw.lstrip("\ufeff")
     sections: list[IniSection] = []
     header_lines: list[str] = []
     current: IniSection | None = None
@@ -59,6 +75,35 @@ def get_extern_sections(sections: list[IniSection]) -> list[IniSection]:
     return [s for s in sections if s.is_extern()]
 
 
+def _find_duplicate_extern_names(sections: list[IniSection]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for section in sections:
+        if not section.is_extern():
+            continue
+        name_key = section.name.casefold()
+        if name_key in seen:
+            duplicates.add(section.name)
+            continue
+        seen.add(name_key)
+    return sorted(duplicates)
+
+
+def _iter_new_key_lines(src_sec: IniSection, dst_keys: set[str]) -> list[str]:
+    new_lines: list[str] = []
+    seen_src_keys: set[str] = set()
+    for line in src_sec.lines:
+        if "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip()
+        key_norm = key.casefold()
+        if key_norm in dst_keys or key_norm in seen_src_keys:
+            continue
+        seen_src_keys.add(key_norm)
+        new_lines.append(line)
+    return new_lines
+
+
 @dataclass(frozen=True)
 class MergePreview:
     """合并预览结果"""
@@ -72,7 +117,17 @@ def preview_merge(
     dst_sections: list[IniSection],
 ) -> MergePreview:
     """分析源和目标的 extern 段落，返回合并预览。"""
-    dst_map: dict[str, IniSection] = {s.name: s for s in dst_sections}
+    src_duplicate_names = _find_duplicate_extern_names(src_sections)
+    if src_duplicate_names:
+        duplicates = ", ".join(f"[{name}]" for name in src_duplicate_names)
+        raise ValueError(f"源 user.ini 存在重复的 extern 段，无法安全同步：{duplicates}")
+
+    duplicate_names = _find_duplicate_extern_names(dst_sections)
+    if duplicate_names:
+        duplicates = ", ".join(f"[{name}]" for name in duplicate_names)
+        raise ValueError(f"目标 user.ini 存在重复的 extern 段，无法安全同步：{duplicates}")
+
+    dst_map: dict[str, IniSection] = {s.name.casefold(): s for s in dst_sections}
     src_map: dict[str, IniSection] = {s.name: s for s in src_sections}
 
     sections_to_add: list[IniSection] = []
@@ -80,20 +135,17 @@ def preview_merge(
     already_identical: list[IniSection] = []
 
     for name, src_sec in src_map.items():
-        if name not in dst_map:
+        name_key = name.casefold()
+        if name_key not in dst_map:
             sections_to_add.append(src_sec)
         else:
-            dst_sec = dst_map[name]
+            dst_sec = dst_map[name_key]
             dst_keys = {
-                line.split("=", 1)[0].strip()
+                line.split("=", 1)[0].strip().casefold()
                 for line in dst_sec.lines
                 if "=" in line
             }
-            new_lines = [
-                line
-                for line in src_sec.lines
-                if "=" in line and line.split("=", 1)[0].strip() not in dst_keys
-            ]
+            new_lines = _iter_new_key_lines(src_sec, dst_keys)
             if new_lines:
                 keys_to_add.append((dst_sec, new_lines))
             else:
@@ -116,6 +168,7 @@ def apply_merge(
     将预览结果写入目标 user.ini。
     写入前创建 .bak 备份。
     """
+    original_encoding = _detect_encoding(dst_path)
     bak_path = dst_path.with_suffix(".ini.bak")
     bak_path.write_bytes(dst_path.read_bytes())
 
@@ -129,6 +182,8 @@ def apply_merge(
         parts.append(f"[{sec.name}]\n")
         parts.extend(sec.lines)
         if sec.name in name_to_add_lines:
+            if sec.lines and not sec.lines[-1].endswith(("\n", "\r")):
+                parts.append("\n")
             parts.extend(name_to_add_lines[sec.name])
 
     # 追加全新的段落
@@ -136,8 +191,9 @@ def apply_merge(
         parts.append(sec.as_text())
 
     merged_text = "".join(parts)
-    # 保持原始编码（尝试 GBK 写入）
+    # 尽量保持目标文件原始编码；gb2312 失败时退回 gbk。
     try:
-        dst_path.write_text(merged_text, encoding="gbk")
+        dst_path.write_text(merged_text, encoding=original_encoding)
     except (UnicodeEncodeError, LookupError):
-        dst_path.write_text(merged_text, encoding="utf-8")
+        fallback_encoding = "gbk" if original_encoding == "gb2312" else "utf-8"
+        dst_path.write_text(merged_text, encoding=fallback_encoding)
