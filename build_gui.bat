@@ -20,7 +20,7 @@ python -m pip install -r requirements.txt -r requirements-build.txt || exit /b 1
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
-python -m PyInstaller --noconfirm --clean --noconsole --onefile --runtime-tmpdir temp --name TdxHevoSyncTool main.py || exit /b 1
+python -m PyInstaller --noconfirm --clean TdxHevoSyncTool.spec || exit /b 1
 
 if exist dist\\TdxHevoSyncTool rmdir /s /q dist\\TdxHevoSyncTool
 
