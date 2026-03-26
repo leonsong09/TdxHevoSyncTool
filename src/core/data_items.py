@@ -280,7 +280,7 @@ ALL_DATA_ITEMS: tuple[DataItem, ...] = (
     DataItem(
         id="user_ini_forbidden",
         name="个性化配置（user.ini，禁止直接复制）",
-        description="user.ini 是个性化配置核心文件，跨版本整体复制可能导致闪退；请使用“user.ini extern 合并”仅迁移 extern_* 段落。",
+        description="user.ini 是个性化配置核心文件，跨版本整体复制可能导致闪退；请使用“user.ini 定向同步”，普通 section 仅替换同名键，extern_* 额外追加缺失键，且不会新增段落。",
         safety_level="forbidden",
         paths=("user.ini",),
     ),

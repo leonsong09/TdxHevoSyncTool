@@ -35,24 +35,31 @@ class TestUserIniHandler(unittest.TestCase):
             self.assertEqual([section.name for section in externs], ["extern_1", "extern_2"])
             self.assertEqual(header, [])
 
-    def test_preview_merge_rejects_duplicate_extern_sections_in_target(self) -> None:
-        src_sections = [IniSection("extern_1", ["A=1\n"])]
+    def test_preview_merge_rejects_duplicate_sections_in_target(self) -> None:
+        src_sections = [IniSection("common", ["A=1\n"])]
         dst_sections = [
-            IniSection("extern_1", ["A=2\n"]),
-            IniSection("extern_1", ["B=3\n"]),
+            IniSection("common", ["A=2\n"]),
+            IniSection("common", ["B=3\n"]),
         ]
 
-        with self.assertRaisesRegex(ValueError, "extern_1"):
+        with self.assertRaisesRegex(ValueError, "common"):
             preview_merge(src_sections, dst_sections)
 
-    def test_preview_merge_rejects_duplicate_extern_sections_in_source(self) -> None:
+    def test_preview_merge_rejects_duplicate_sections_in_source(self) -> None:
         src_sections = [
-            IniSection("extern_1", ["A=1\n"]),
-            IniSection("extern_1", ["B=2\n"]),
+            IniSection("common", ["A=1\n"]),
+            IniSection("common", ["B=2\n"]),
         ]
-        dst_sections = [IniSection("extern_1", ["C=3\n"])]
+        dst_sections = [IniSection("common", ["C=3\n"])]
 
-        with self.assertRaisesRegex(ValueError, "extern_1"):
+        with self.assertRaisesRegex(ValueError, "common"):
+            preview_merge(src_sections, dst_sections)
+
+    def test_preview_merge_rejects_duplicate_keys_in_target_section(self) -> None:
+        src_sections = [IniSection("common", ["A=1\n"])]
+        dst_sections = [IniSection("common", ["A=9\n", "A=8\n"])]
+
+        with self.assertRaisesRegex(ValueError, "common"):
             preview_merge(src_sections, dst_sections)
 
     def test_apply_merge_inserts_newline_before_appended_keys(self) -> None:
@@ -61,7 +68,7 @@ class TestUserIniHandler(unittest.TestCase):
             dst_path.write_text("[extern_1]\nA=1", encoding="utf-8")
             dst_sections = [IniSection("extern_1", ["A=1"])]
             preview = preview_merge(
-                [IniSection("extern_1", ["B=2\n"])],
+                [IniSection("extern_1", ["A=1\n", "B=2\n"])],
                 dst_sections,
             )
 
@@ -75,13 +82,13 @@ class TestUserIniHandler(unittest.TestCase):
             dst_path.write_text("[extern_1]\n名称=同步到第二个\n", encoding="utf-8")
             dst_sections = [IniSection("extern_1", ["名称=同步到第二个\n"])]
             preview = preview_merge(
-                [IniSection("extern_1", ["B=2\n"])],
+                [IniSection("extern_1", ["名称=同步到第一个\n", "B=2\n"])],
                 dst_sections,
             )
 
             apply_merge(dst_path, dst_sections, [], preview)
 
-            expected = "[extern_1]\n名称=同步到第二个\nB=2\n"
+            expected = "[extern_1]\n名称=同步到第一个\nB=2\n"
             self.assertEqual(dst_path.read_text(encoding="utf-8"), expected)
             raw_bytes = dst_path.read_bytes()
             self.assertFalse(raw_bytes.startswith(b"\xef\xbb\xbf"))
@@ -98,14 +105,39 @@ class TestUserIniHandler(unittest.TestCase):
         self.assertEqual(dst_section.name, "extern_1")
         self.assertEqual(new_lines, ["A=1\n", "B=3\n"])
 
-    def test_preview_merge_keeps_existing_target_value(self) -> None:
+    def test_preview_merge_replaces_existing_value_in_normal_section(self) -> None:
         preview = preview_merge(
-            [IniSection("extern_1", ["A=1\n", "B=2\n"])],
-            [IniSection("extern_1", ["A=9\n"])],
+            [IniSection("common", ["A=1\n", "B=2\n"])],
+            [IniSection("common", ["A=9\n"])],
         )
 
-        self.assertEqual(preview.sections_to_add, [])
-        self.assertEqual(len(preview.keys_to_add), 1)
-        _, new_lines = preview.keys_to_add[0]
-        self.assertEqual(new_lines, ["B=2\n"])
+        self.assertEqual(len(preview.keys_to_replace), 1)
+        dst_section, replace_lines = preview.keys_to_replace[0]
+        self.assertEqual(dst_section.name, "common")
+        self.assertEqual(replace_lines, ["A=1\n"])
+        self.assertEqual(preview.keys_to_add, [])
         self.assertEqual(preview.already_identical, [])
+
+    def test_apply_merge_does_not_add_missing_key_to_normal_section(self) -> None:
+        with TemporaryDirectory() as td:
+            dst_path = Path(td) / "user.ini"
+            dst_path.write_text("[common]\nA=9\n", encoding="utf-8")
+            dst_sections = [IniSection("common", ["A=9\n"])]
+            preview = preview_merge(
+                [IniSection("common", ["A=1\n", "B=2\n"])],
+                dst_sections,
+            )
+
+            apply_merge(dst_path, dst_sections, [], preview)
+
+            self.assertEqual(dst_path.read_text(encoding="utf-8"), "[common]\nA=1\n")
+
+    def test_preview_merge_skips_missing_target_section(self) -> None:
+        preview = preview_merge(
+            [IniSection("common", ["A=1\n"])],
+            [IniSection("other", ["A=9\n"])],
+        )
+
+        self.assertEqual(preview.missing_target_sections, [IniSection("common", ["A=1\n"])])
+        self.assertEqual(preview.keys_to_add, [])
+        self.assertEqual(preview.keys_to_replace, [])

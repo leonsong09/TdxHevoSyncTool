@@ -26,21 +26,21 @@ class TestUserIniDialog(unittest.TestCase):
 
     def test_preview_populates_summary_and_enables_apply(self) -> None:
         dialog = UserIniDialog()
-        dialog._src_externs = [IniSection("extern_1", ["A=1\n", "B=2\n"])]
-        dialog._dst_externs = [IniSection("extern_1", ["A=9\n"])]
+        dialog._src_sections = [IniSection("common", ["A=1\n"]), IniSection("extern_1", ["B=2\n"])]
+        dialog._dst_sections = [IniSection("common", ["A=9\n"]), IniSection("extern_1", ["A=8\n"])]
 
         dialog._on_preview()
 
-        self.assertIn("【将追加键值】", dialog._preview_edit.toPlainText())
-        self.assertIn("[extern_1]  +1 行", dialog._preview_edit.toPlainText())
+        self.assertIn("【将替换键值】", dialog._preview_edit.toPlainText())
+        self.assertIn("【将追加键值（仅 extern_*）】", dialog._preview_edit.toPlainText())
         self.assertTrue(dialog._apply_btn.isEnabled())
 
-    def test_preview_shows_warning_when_target_has_duplicate_extern_sections(self) -> None:
+    def test_preview_shows_warning_when_target_has_duplicate_sections(self) -> None:
         dialog = UserIniDialog()
-        dialog._src_externs = [IniSection("extern_1", ["A=1\n"])]
-        dialog._dst_externs = [
-            IniSection("extern_1", ["A=2\n"]),
-            IniSection("extern_1", ["B=3\n"]),
+        dialog._src_sections = [IniSection("common", ["A=1\n"])]
+        dialog._dst_sections = [
+            IniSection("common", ["A=2\n"]),
+            IniSection("common", ["B=3\n"]),
         ]
 
         with patch.object(QMessageBox, "warning") as warning:
@@ -48,5 +48,5 @@ class TestUserIniDialog(unittest.TestCase):
 
         self.assertIsNone(dialog._preview)
         self.assertFalse(dialog._apply_btn.isEnabled())
-        self.assertIn("重复的 extern 段", dialog._preview_edit.toPlainText())
+        self.assertIn("重复的段", dialog._preview_edit.toPlainText())
         warning.assert_called_once()

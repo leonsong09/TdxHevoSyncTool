@@ -101,9 +101,9 @@ class MainWindow(QMainWindow):
         self._rollback_btn.clicked.connect(self._on_rollback)
         layout.addWidget(self._rollback_btn)
 
-        self._userini_btn = QPushButton("user.ini extern 合并")
+        self._userini_btn = QPushButton("user.ini 定向同步")
         self._userini_btn.setObjectName("linkButton")
-        self._userini_btn.setToolTip("安全合并 user.ini 中的 extern 外挂段落")
+        self._userini_btn.setToolTip("按 section 定向同步 user.ini：普通 section 替换同名键，extern 额外追加缺失键")
         self._userini_btn.clicked.connect(self._on_userini)
         layout.addWidget(self._userini_btn)
 

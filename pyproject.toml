@@ -1,6 +1,6 @@
 [project]
 name = "TdxHevoSyncTool"
-version = "1.0.3"
+version = "1.0.4"
 description = "通达信 T0002 配置备份与转移工具"
 requires-python = ">=3.10"
 dependencies = [

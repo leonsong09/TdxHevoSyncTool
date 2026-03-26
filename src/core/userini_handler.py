@@ -1,5 +1,6 @@
-"""user.ini extern 段落解析与合并"""
+"""user.ini 定向同步与写回。"""
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +47,30 @@ class IniSection:
         return f"[{self.name}]\n" + "".join(self.lines)
 
 
+@dataclass(frozen=True)
+class SectionKeyLine:
+    key: str
+    value: str
+    line: str
+    line_idx: int
+
+
+@dataclass(frozen=True)
+class SectionKeyIndex:
+    by_key: dict[str, SectionKeyLine]
+    duplicate_keys: list[str]
+
+
+@dataclass(frozen=True)
+class MergePreview:
+    """合并预览结果。"""
+
+    keys_to_replace: list[tuple[IniSection, list[str]]]
+    keys_to_add: list[tuple[IniSection, list[str]]]
+    missing_target_sections: list[IniSection]
+    already_identical: list[IniSection]
+
+
 def parse_ini(path: Path) -> tuple[list[IniSection], list[str]]:
     """
     解析 user.ini，返回 (sections, header_lines)。
@@ -59,103 +84,167 @@ def parse_ini(path: Path) -> tuple[list[IniSection], list[str]]:
     current: IniSection | None = None
 
     for line in raw.splitlines(keepends=True):
-        m = _SECTION_RE.match(line.strip())
-        if m:
-            current = IniSection(name=m.group(1))
+        match = _SECTION_RE.match(line.strip())
+        if match:
+            current = IniSection(name=match.group(1))
             sections.append(current)
-        elif current is not None:
-            current.lines.append(line)
-        else:
+            continue
+        if current is None:
             header_lines.append(line)
+            continue
+        current.lines.append(line)
 
     return sections, header_lines
 
 
 def get_extern_sections(sections: list[IniSection]) -> list[IniSection]:
-    return [s for s in sections if s.is_extern()]
+    return [section for section in sections if section.is_extern()]
 
 
-def _find_duplicate_extern_names(sections: list[IniSection]) -> list[str]:
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for section in sections:
-        if not section.is_extern():
+def _parse_key_line(line: str) -> tuple[str, str] | None:
+    if "=" not in line:
+        return None
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if not key:
+        return None
+    return key, value.rstrip("\r\n")
+
+
+def _index_section_keys(section: IniSection) -> SectionKeyIndex:
+    by_key: dict[str, SectionKeyLine] = {}
+    duplicate_keys: list[str] = []
+    seen_duplicates: set[str] = set()
+    for line_idx, line in enumerate(section.lines):
+        parsed = _parse_key_line(line)
+        if parsed is None:
             continue
+        key, value = parsed
+        key_norm = key.casefold()
+        if key_norm in by_key:
+            if key_norm not in seen_duplicates:
+                duplicate_keys.append(key)
+                seen_duplicates.add(key_norm)
+            continue
+        by_key[key_norm] = SectionKeyLine(key=key, value=value, line=line, line_idx=line_idx)
+    return SectionKeyIndex(by_key=by_key, duplicate_keys=duplicate_keys)
+
+
+def _find_duplicate_section_names(sections: list[IniSection]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    seen_duplicates: set[str] = set()
+    for section in sections:
         name_key = section.name.casefold()
-        if name_key in seen:
-            duplicates.add(section.name)
+        if name_key in seen and name_key not in seen_duplicates:
+            duplicates.append(section.name)
+            seen_duplicates.add(name_key)
             continue
         seen.add(name_key)
-    return sorted(duplicates)
+    return duplicates
 
 
-def _iter_new_key_lines(src_sec: IniSection, dst_keys: set[str]) -> list[str]:
-    new_lines: list[str] = []
-    seen_src_keys: set[str] = set()
-    for line in src_sec.lines:
-        if "=" not in line:
+def _build_replace_lines(
+    src_index: SectionKeyIndex,
+    dst_index: SectionKeyIndex,
+) -> list[str]:
+    replace_lines: list[str] = []
+    for key_norm, src_key_line in src_index.by_key.items():
+        dst_key_line = dst_index.by_key.get(key_norm)
+        if dst_key_line is None or dst_key_line.value == src_key_line.value:
             continue
-        key = line.split("=", 1)[0].strip()
-        key_norm = key.casefold()
-        if key_norm in dst_keys or key_norm in seen_src_keys:
+        replace_lines.append(src_key_line.line)
+    return replace_lines
+
+
+def _build_add_lines(
+    src_section: IniSection,
+    src_index: SectionKeyIndex,
+    dst_index: SectionKeyIndex,
+) -> list[str]:
+    if not src_section.is_extern():
+        return []
+    add_lines: list[str] = []
+    for key_norm, src_key_line in src_index.by_key.items():
+        if key_norm in dst_index.by_key:
             continue
-        seen_src_keys.add(key_norm)
-        new_lines.append(line)
-    return new_lines
-
-
-@dataclass(frozen=True)
-class MergePreview:
-    """合并预览结果"""
-    sections_to_add: list[IniSection]      # 目标中不存在、将直接追加的段落
-    keys_to_add: list[tuple[IniSection, list[str]]]  # (目标段, 要追加的行)
-    already_identical: list[IniSection]   # 已完全相同无需变动
+        add_lines.append(src_key_line.line)
+    return add_lines
 
 
 def preview_merge(
     src_sections: list[IniSection],
     dst_sections: list[IniSection],
 ) -> MergePreview:
-    """分析源和目标的 extern 段落，返回合并预览。"""
-    src_duplicate_names = _find_duplicate_extern_names(src_sections)
+    """分析源和目标的 section，返回同步预览。"""
+    src_duplicate_names = _find_duplicate_section_names(src_sections)
     if src_duplicate_names:
         duplicates = ", ".join(f"[{name}]" for name in src_duplicate_names)
-        raise ValueError(f"源 user.ini 存在重复的 extern 段，无法安全同步：{duplicates}")
+        raise ValueError(f"源 user.ini 存在重复的段，无法安全同步：{duplicates}")
 
-    duplicate_names = _find_duplicate_extern_names(dst_sections)
-    if duplicate_names:
-        duplicates = ", ".join(f"[{name}]" for name in duplicate_names)
-        raise ValueError(f"目标 user.ini 存在重复的 extern 段，无法安全同步：{duplicates}")
+    dst_duplicate_names = _find_duplicate_section_names(dst_sections)
+    if dst_duplicate_names:
+        duplicates = ", ".join(f"[{name}]" for name in dst_duplicate_names)
+        raise ValueError(f"目标 user.ini 存在重复的段，无法安全同步：{duplicates}")
 
-    dst_map: dict[str, IniSection] = {s.name.casefold(): s for s in dst_sections}
-    src_map: dict[str, IniSection] = {s.name: s for s in src_sections}
-
-    sections_to_add: list[IniSection] = []
+    dst_map = {section.name.casefold(): section for section in dst_sections}
+    keys_to_replace: list[tuple[IniSection, list[str]]] = []
     keys_to_add: list[tuple[IniSection, list[str]]] = []
+    missing_target_sections: list[IniSection] = []
     already_identical: list[IniSection] = []
 
-    for name, src_sec in src_map.items():
-        name_key = name.casefold()
-        if name_key not in dst_map:
-            sections_to_add.append(src_sec)
-        else:
-            dst_sec = dst_map[name_key]
-            dst_keys = {
-                line.split("=", 1)[0].strip().casefold()
-                for line in dst_sec.lines
-                if "=" in line
-            }
-            new_lines = _iter_new_key_lines(src_sec, dst_keys)
-            if new_lines:
-                keys_to_add.append((dst_sec, new_lines))
-            else:
-                already_identical.append(src_sec)
+    for src_section in src_sections:
+        dst_section = dst_map.get(src_section.name.casefold())
+        if dst_section is None:
+            missing_target_sections.append(src_section)
+            continue
+
+        src_index = _index_section_keys(src_section)
+        dst_index = _index_section_keys(dst_section)
+        if dst_index.duplicate_keys:
+            duplicates = ", ".join(dst_index.duplicate_keys)
+            raise ValueError(
+                f"目标 user.ini 的 [{dst_section.name}] 存在重复键，无法安全同步：{duplicates}"
+            )
+
+        replace_lines = _build_replace_lines(src_index, dst_index)
+        add_lines = _build_add_lines(src_section, src_index, dst_index)
+        if replace_lines:
+            keys_to_replace.append((dst_section, replace_lines))
+        if add_lines:
+            keys_to_add.append((dst_section, add_lines))
+        if not replace_lines and not add_lines:
+            already_identical.append(src_section)
 
     return MergePreview(
-        sections_to_add=sections_to_add,
+        keys_to_replace=keys_to_replace,
         keys_to_add=keys_to_add,
+        missing_target_sections=missing_target_sections,
         already_identical=already_identical,
     )
+
+
+def _lines_by_key(lines: list[str]) -> dict[str, str]:
+    by_key: dict[str, str] = {}
+    for line in lines:
+        parsed = _parse_key_line(line)
+        if parsed is None:
+            continue
+        key, _ = parsed
+        by_key[key.casefold()] = line
+    return by_key
+
+
+def _replace_section_lines(section: IniSection, replace_by_key: dict[str, str]) -> list[str]:
+    updated_lines: list[str] = []
+    for line in section.lines:
+        parsed = _parse_key_line(line)
+        if parsed is None:
+            updated_lines.append(line)
+            continue
+        key, _ = parsed
+        updated_lines.append(replace_by_key.get(key.casefold(), line))
+    return updated_lines
 
 
 def apply_merge(
@@ -172,26 +261,31 @@ def apply_merge(
     bak_path = dst_path.with_suffix(".ini.bak")
     bak_path.write_bytes(dst_path.read_bytes())
 
-    # 更新 keys_to_add 对应的段落
-    name_to_add_lines: dict[str, list[str]] = {
-        sec.name: lines for sec, lines in preview.keys_to_add
+    replace_map = {
+        section.name.casefold(): _lines_by_key(lines)
+        for section, lines in preview.keys_to_replace
+    }
+    add_map = {
+        section.name.casefold(): lines
+        for section, lines in preview.keys_to_add
     }
 
     parts: list[str] = list(dst_header)
-    for sec in dst_sections:
-        parts.append(f"[{sec.name}]\n")
-        parts.extend(sec.lines)
-        if sec.name in name_to_add_lines:
-            if sec.lines and not sec.lines[-1].endswith(("\n", "\r")):
-                parts.append("\n")
-            parts.extend(name_to_add_lines[sec.name])
-
-    # 追加全新的段落
-    for sec in preview.sections_to_add:
-        parts.append(sec.as_text())
+    for section in dst_sections:
+        parts.append(f"[{section.name}]\n")
+        replaced_lines = _replace_section_lines(
+            section,
+            replace_map.get(section.name.casefold(), {}),
+        )
+        parts.extend(replaced_lines)
+        add_lines = add_map.get(section.name.casefold(), [])
+        if not add_lines:
+            continue
+        if replaced_lines and not replaced_lines[-1].endswith(("\n", "\r")):
+            parts.append("\n")
+        parts.extend(add_lines)
 
     merged_text = "".join(parts)
-    # 尽量保持目标文件原始编码；gb2312 失败时退回 gbk。
     try:
         dst_path.write_text(merged_text, encoding=original_encoding)
     except (UnicodeEncodeError, LookupError):

@@ -41,7 +41,7 @@ _SAFETY_META = {
         "label": "禁止",
         "bg": "#FEE2E2",
         "fg": "#991B1B",
-        "advice": "禁止直接复制/导入导出；请使用“user.ini extern 合并”迁移 extern_* 段落。",
+        "advice": "禁止直接复制/导入导出；请使用“user.ini 定向同步”，普通 section 仅替换同名键，extern_* 额外追加缺失键。",
     },
 }
 
@@ -197,7 +197,7 @@ class DataPanel(QWidget):
 
         extra = ""
         if data_item.id == "user_ini_forbidden":
-            extra = "<p><b>提示：</b>请在主界面点击“user.ini extern 合并”。</p>"
+            extra = "<p><b>提示：</b>请在主界面点击“user.ini 定向同步”。</p>"
 
         return f"""
 <h3>{escape(data_item.name)} {badge}</h3>

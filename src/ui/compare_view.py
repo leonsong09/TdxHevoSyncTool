@@ -40,7 +40,7 @@ _SAFETY_META = {
         "label": "禁止",
         "bg": "#FEE2E2",
         "fg": "#991B1B",
-        "advice": "禁止直接复制/导入/导出；请使用 user.ini extern 合并迁移 extern_* 段落。",
+        "advice": "禁止直接复制/导入/导出；请使用 user.ini 定向同步，普通 section 仅替换同名键，extern_* 额外追加缺失键。",
     },
 }
 
@@ -203,7 +203,7 @@ class CompareView(QWidget):
 
         extra = ""
         if data_item.id == "user_ini_forbidden":
-            extra = "<p><b>提示：</b>请使用主界面的 <code>user.ini extern 合并</code>。</p>"
+            extra = "<p><b>提示：</b>请使用主界面的 <code>user.ini 定向同步</code>。</p>"
 
         return f"""
 <h3>{escape(data_item.name)} {badge}</h3>
