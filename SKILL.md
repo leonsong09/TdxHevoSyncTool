@@ -28,6 +28,29 @@ python main.py                 # 需先: python -m pip install -r requirements.t
 
 > 使用前**必须先关闭通达信主程序**。
 
+## 2.1 命令行（CLI，GA/脚本无头调用）
+
+与 GUI 共用 `src/core` 全部逻辑，不弹窗。入口 `cli.py`（仓库根目录）：
+
+```powershell
+python cli.py items                                  # 列出全部数据项（id/安全级别/路径）
+python cli.py discover                               # 自动检测本机 T0002
+python cli.py export --t0002 <T0002> --out <目录> [--items a,b | --level safe | --all] [--mode zip|folder]
+python cli.py import --src <zip|目录> --t0002 <T0002> [--items a,b] [--apply]
+python cli.py compare --left <T0002> --right <T0002> [--items a,b]
+python cli.py plan    --left <T0002> --right <T0002> --mode l2r|r2l|bi-missing|bi-sync
+                      [--strategy diff|missing|full] [--conflict left|right|mtime]
+python cli.py rollback --backup <.tdx_backup_xxx> --t0002 <T0002> [--apply]
+python cli.py userini  --src <user.ini> --dst <user.ini> [--apply]
+```
+
+- **约定**：所有**写**操作（`import`/`rollback`/`userini`）默认**预演**，必须显式加 `--apply` 才落盘；`export` 只读源配置、写新包（安全）。
+- 缺省数据项 = `safe` 全选；`--level caution` 才含谨慎项；`forbidden`（user.ini）永不被选中。
+- 检测到通达信进程在运行会直接报错退出（与 GUI 同一判据）。
+- 退出码：`0` 成功 / `1` 业务失败 / `2` 用法错误。
+- 已实测：items / discover / export / import(预演+`--apply`) / compare / plan / rollback / userini(预演+`--apply`) 全通。
+- `pip install -e .` 后也可用入口名 `tdx-sync-cli`。
+
 ## 3. 核心操作
 
 | 操作 | 说明 |

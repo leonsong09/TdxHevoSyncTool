@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 tdx-sync = "main:main"
+tdx-sync-cli = "cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
