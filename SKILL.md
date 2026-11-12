@@ -5,9 +5,9 @@ description: 通达信 T0002 本地配置备份/迁移/对比工具（TdxHevoSyn
 
 # tdx-hevo-sync（通达信 T0002 配置备份/迁移工具）
 
-**仓库**：`D:\Documents\Code\Stock auskill\TdxHevoSyncTool\`（独立 git repo，remote `git@github.com:leonsong09/TdxHevoSyncTool.git`）
+**仓库**：独立 git repo，remote `git@github.com:leonsong09/TdxHevoSyncTool.git`（克隆到本机任意目录即可）
 
-> 家族成员之一，家族总入口见上级 `..\README.md`（同花顺/通达信 本地客户端工具族）。
+> 家族成员之一，家族总入口见上级 `README.md`（同花顺/通达信 本地客户端工具族）。
 
 ## 1. 用途
 
